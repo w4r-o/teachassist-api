@@ -7,4 +7,6 @@
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
-  disable = true
+  # Use inputs.disabled to disable the plugin
+  [plugins.inputs]
+    disabled = true
