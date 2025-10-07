@@ -4,3 +4,7 @@
 
 [functions]
   node_bundler = "esbuild" # Recommended bundler for Netlify functions
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+  disable = true
