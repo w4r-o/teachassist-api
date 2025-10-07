@@ -1,0 +1,6 @@
+[build]
+  functions = "netlify/functions"
+  publish = "public" # Or any other directory that Netlify can publish, even if empty
+
+[functions]
+  node_bundler = "esbuild" # Recommended bundler for Netlify functions
