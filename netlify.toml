@@ -4,9 +4,3 @@
 
 [functions]
   node_bundler = "esbuild" # Recommended bundler for Netlify functions
-
-[[plugins]]
-  package = "@netlify/plugin-nextjs"
-  # Use inputs.disabled to disable the plugin
-  [plugins.inputs]
-    disabled = true
