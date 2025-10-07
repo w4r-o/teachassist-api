@@ -1,34 +1,70 @@
-// Next.js API route support: https://nextjs.org/docs/api-routes/introduction
 import type { NextApiRequest, NextApiResponse } from "next";
-const cheerio = require("cheerio");
-const Cors = require("cors");
-//@ts-ignore
+import cheerio from "cheerio";
+import Cors from "cors";
+// @ts-expect-error
 import { fetch as cookieFetch, CookieJar } from "node-fetch-cookies";
 
-type Data = {
-  response: any;
-};
+interface Course {
+  code: string;
+  name: string;
+  block: string;
+  room: string;
+  start_time: string;
+  end_time: string;
+  dropped_time: string;
+  overall_mark: number | "N/A";
+  isFinal: boolean;
+  isMidterm: boolean;
+  link: string | undefined;
+  assignments: Assignment[];
+  weight_table: WeightTable;
+}
+
+interface Assignment {
+  name: string;
+  feedback?: string;
+  KU?: Mark[];
+  A?: Mark[];
+  T?: Mark[];
+  C?: Mark[];
+  O?: Mark[];
+  F?: Mark[];
+}
+
+interface Mark {
+  get: number;
+  total: number;
+  weight: number;
+  finished: boolean;
+}
+
+interface WeightTable {
+  [key: string]: {
+    W: number;
+    CW: number;
+    SA: number;
+  };
+}
 
 const cors = Cors({
   methods: ["POST"],
 });
 
-function runMiddleware(req: any, res: any, fn: any) {
+function runMiddleware(req: NextApiRequest, res: NextApiResponse, fn: typeof cors) {
   return new Promise((resolve, reject) => {
-    fn(req, res, (result: any) => {
+    fn(req, res, (result: unknown) => {
       if (result instanceof Error) {
         return reject(result);
       }
-
       return resolve(result);
     });
   });
 }
 
-function parseOverallMark(mark: string) {
+function parseOverallMark(mark: string): { mark: number | "N/A"; isFinal: boolean; isMidterm: boolean } {
   mark = mark.replaceAll(" ", "");
-  const result: any = {
-    mark: "N/A",
+  const result = {
+    mark: "N/A" as number | "N/A",
     isFinal: false,
     isMidterm: false,
   };
@@ -47,65 +83,49 @@ function parseOverallMark(mark: string) {
 
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse<Data>
+  res: NextApiResponse
 ) {
   await runMiddleware(req, res, cors);
 
-  const username = req.body.username;
-  const password = req.body.password;
+  const { username, password } = req.body;
 
   const cookieJar = new CookieJar();
 
   if (!username || !password) {
-    res.status(400).json({
-      response: { error: "Invalid username or password" },
-    });
-    return;
+    return res.status(400).json({ response: { error: "Invalid username or password" } });
   }
+
   if (req.method === "POST") {
     try {
-      const data: any = await cookieFetch(
+      const data = await cookieFetch(
         cookieJar,
-        `https://ta.yrdsb.ca/live/index.php?username=${username}&password=${password}&submit=Login&subject_id=0`,
+        `https://ta.yrdsb.ca/live/index.php?username=${username as string}&password=${password as string}&submit=Login&subject_id=0`,
         {
           method: "POST",
           body: "credentials",
         }
       );
-      const textData: any = await data.text();
+      const textData = await data.text();
 
       if (textData.includes("Invalid Login")) {
-        res.status(401).json({
-          response: { error: "Invalid Login" },
-        });
-        return;
+        return res.status(401).json({ response: { error: "Invalid Login" } });
       } else if (textData.includes("Access Denied")) {
-        res.status(403).json({
-          response: { error: "Access Denied" },
-        });
-        return;
+        return res.status(403).json({ response: { error: "Access Denied" } });
       } else if (textData.includes("Session Expired")) {
-        res.status(401).json({
-          response: { error: "Session Expired" },
-        });
-        return;
+        return res.status(401).json({ response: { error: "Session Expired" } });
       }
 
       const $ = cheerio.load(textData);
-      let courses: any = [];
+      const courses: Course[] = [];
       $(".green_border_message div table tr").each(
-        (i: any, elem: any) => {
+        (i, elem) => {
           try {
             const link = $(elem).find("a").attr("href");
-            let course = $(elem).text().split("\n");
-            if (!course[1].includes("Course Name")) {
-              let filteredCourse = [];
-              for (let i = 0; i < course.length; i++) {
-                course[i] = course[i].trim();
-                if (course[i].length > 0) {
-                  filteredCourse.push(course[i]);
-                }
-              }
+            const courseText = $(elem).text().split("\n");
+            if (!courseText[1].includes("Course Name")) {
+              const filteredCourse = courseText
+                .map((item) => item.trim())
+                .filter((item) => item.length > 0);
 
               if (filteredCourse.length > 3) {
                 const overall = parseOverallMark(filteredCourse[4] || "");
@@ -117,7 +137,7 @@ export default async function handler(
                 } else {
                   end_time = filteredCourse[3].trim();
                 }
-                const jsonCourse = {
+                const jsonCourse: Course = {
                   code: filteredCourse[0].split(" : ")[0] || "Unknown Code",
                   name: filteredCourse[0].split(" : ")[1] || "Unknown Course",
                   block: filteredCourse[1].replace("Block: P", "").split(" ")[0] || "N/A",
@@ -129,6 +149,8 @@ export default async function handler(
                   isFinal: overall.isFinal,
                   isMidterm: overall.isMidterm,
                   link: link,
+                  assignments: [],
+                  weight_table: {},
                 };
                 courses.push(jsonCourse);
               }
@@ -140,20 +162,20 @@ export default async function handler(
       );
 
       for (let i = 0; i < courses.length; i++) {
-        const courseRes: any = await cookieFetch(
+        const courseRes = await cookieFetch(
           cookieJar,
-          "https://ta.yrdsb.ca/live/students/" + courses[i].link,
+          "https://ta.yrdsb.ca/live/students/" + (courses[i].link as string),
           {
             method: "POST",
             body: "credentials",
           }
         );
-        const courseText: any = await courseRes.text();
+        const courseText = await courseRes.text();
         const $ = cheerio.load(courseText);
 
-        let assignments: any = [];
+        const assignments: Assignment[] = [];
         let counter = 1;
-        $('table[width="100%"]').children().children().each((i: any, elem: any) => {
+        $('table[width="100%"]').children().children().each((i, elem) => {
           counter++;
           if (counter % 2 === 0) {
             if (counter > 2) {
@@ -162,8 +184,9 @@ export default async function handler(
             return;
           }
 
-          let assignment: any = {};
-          assignment.name = $(elem).find('td[rowspan="2"]').text().replaceAll("\t", "");
+          const assignment: Assignment = {
+            name: $(elem).find('td[rowspan="2"]').text().replaceAll("\t", ""),
+          };
           [
             ["KU", "ffffaa"], ["A", "ffd490"], ["T", "c0fea4"],
             ["C", "afafff"], ["O", "eeeeee"], ["F", "#dedede"],
@@ -171,32 +194,32 @@ export default async function handler(
             const category = $(elem).find(`td[bgcolor="${item[1]}"]`).text().replaceAll("\t", "").trim();
             if (category) {
               try {
-                assignment[item[0]] = [{
+                (assignment as any)[item[0]] = [{
                   get: parseFloat(category.split(" / ")[0]),
                   total: parseFloat(category.split(" / ")[1].split(" = ")[0]),
                   weight: parseFloat(category.split("weight=")[1].split("\n")[0]),
                   finished: !category.includes("finished"),
                 }];
               } catch (e) {
-                assignment[item[0]] = [{ get: 0, total: 0, weight: 0, finished: true }];
+                (assignment as any)[item[0]] = [{ get: 0, total: 0, weight: 0, finished: true }];
               }
             }
           });
           assignments.push(assignment);
         });
 
-        let weight_table: any = {};
+        const weight_table: WeightTable = {};
         [
           ["KU", "ffffaa"], ["A", "ffd490"], ["T", "c0fea4"],
           ["C", "afafff"], ["O", "eeeeee"], ["F", "cccccc"],
         ].forEach((item) => {
-          const weights: any = [];
-          $('table[cellpadding="5"]').find(`tr[bgcolor="#${item[1]}"]`).children().each((i: any, elem: any) => {
+          const weights: string[] = [];
+          $('table[cellpadding="5"]').find(`tr[bgcolor="#${item[1]}"]`).children().each((i, elem) => {
             weights.push($(elem).text().trim());
           });
           try {
             let index = 1;
-            if (weights[0].includes("Final")) {
+            if (weights[0]?.includes("Final")) {
               index = 0;
               weights[index] = "0%";
             }
@@ -214,10 +237,11 @@ export default async function handler(
         courses[i].weight_table = Object.keys(weight_table).length > 0 ? { ...weight_table } : {};
       }
 
-      res.status(200).json({ response: courses });
-    } catch (err: any) {
-      res.status(500).json({
-        response: { error: err.message },
+      return res.status(200).json({ response: courses });
+    } catch (err) {
+      const error = err as Error;
+      return res.status(500).json({
+        response: { error: error.message },
       });
     }
   }
