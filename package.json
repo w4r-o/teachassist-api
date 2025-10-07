@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@netlify/functions": "^4.2.7",
     "@types/cors": "^2.8.19",
     "cheerio": "^1.1.2",
     "cors": "^2.8.5",
